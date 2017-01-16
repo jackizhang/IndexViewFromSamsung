@@ -1,11 +1,15 @@
 package code;
 
 
+import android.animation.Animator;
+import android.animation.Animator.AnimatorListener;
 import android.animation.ValueAnimator;
 import android.animation.ValueAnimator.AnimatorUpdateListener;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.graphics.Paint.Align;
+import android.graphics.Paint.FontMetrics;
 import android.graphics.Path;
 import android.graphics.Point;
 import android.graphics.RectF;
@@ -23,15 +27,16 @@ public class IndexViewFromSamsung extends View{
             "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z"};
 	
 	private int mIndexWidth = ConvertUtils.toPx(30);//默认index的宽度30dp
-	private int mIndexRightPadding = ConvertUtils.toPx(10);//默认index的距离View右边的边距
+	private int mIndexRightPadding = ConvertUtils.toPx(6);//默认index的距离View右边的边距
 	private Paint mPaint;
 	private int mIndexRectRadius = mIndexWidth/2;  //IndexView的圆角半径
-	private int mFloatingIndexRadius = ConvertUtils.toPx(40); 
+	private int mFloatingIndexRadius = ConvertUtils.toPx(35); 
 	
 	private int mIndexTextColor = 0xffC0C0C0;   
-	private int mIndexStrokeColor = 0xff969696;
-	private int mPopTextColor = 0xf8;
-	private int mPopBackColor = 0xcfFF9966; //半透明
+	private int mIndexStrokeColor = 0xaf969696;
+	private int mIndexFillColor = 0xefffffff;
+	private int mPopTextColor = 0xffffffff;
+	private int mPopBackColor = 0xd851b0d3; //半透明
 	private float mSingleHeight;
 	
 	private int mIndexStrokeX; // indexView 的外边框的起始x
@@ -45,10 +50,12 @@ public class IndexViewFromSamsung extends View{
 	private int mTopStartY;			//水波纹上面的起点的Y坐标
 	private int mBottomStartY;     //水波纹下面起点的Y坐标
 	private Point mPopCenter;
-	private int touchY;
+	private int mTouchDownY;
 	private int mChosedIndex = -1;
+	private boolean mAnimEnd = false;
 	
 	private ValueAnimator waveAnim,ballAnim;
+	private final static int ANIM_DURATION = 500;
 	
 	private OnAlphbetTouchListener mListener;
 	
@@ -108,9 +115,19 @@ public class IndexViewFromSamsung extends View{
 		
 		rect.set(mIndexStrokeX, getHeight() - 2*mIndexRectRadius, mIndexStrokeX+mIndexWidth, getHeight());
 		canvas.drawArc(rect, 0, 180, false, mPaint);
+		//填充
+		mPaint.setColor(mIndexFillColor);
+		mPaint.setStyle(Paint.Style.FILL);
+		rect = new RectF(mIndexStrokeX, 0, mIndexStrokeX+mIndexWidth,2*mIndexRectRadius);
+		canvas.drawArc(rect, 180, 180, false, mPaint);
+		canvas.drawRect(mIndexStrokeX, mIndexRectRadius, mIndexStrokeX+mIndexWidth, getHeight()-mIndexRectRadius, mPaint);
+		rect.set(mIndexStrokeX, getHeight() - 2*mIndexRectRadius, mIndexStrokeX+mIndexWidth, getHeight());
+		canvas.drawArc(rect, 0, 180, false, mPaint);
+		
 		//画字符
+		mPaint.setTextSize(mSingleHeight*0.5f);
 		mPaint.setColor(mIndexTextColor);
-		Log.i(TAG,"getHeight():"+getHeight()+",singleHeight:"+mSingleHeight+",rectRadius:"+mIndexRectRadius);
+		mPaint.setTextAlign(Align.LEFT);
 		for(int i =0 ;i<mAlphabets.length;i++){
 			mIndexTextY = (i+1)*mSingleHeight+mIndexRectRadius-20;
 			canvas.drawText(mAlphabets[i], mIndexTextX, mIndexTextY, mPaint);
@@ -134,6 +151,8 @@ public class IndexViewFromSamsung extends View{
 		//波浪上面的球体
 		canvas.drawCircle(mPopCenter.x, mPopCenter.y, mFloatingIndexRadius, mPaint);
 		//高亮字体
+		if(mChosedIndex < 0 || mChosedIndex > 25)
+			return;
 		for(int i =0 ;i<mAlphabets.length;i++){
 			if(i == mChosedIndex){
 				mIndexTextY = (i+1)*mSingleHeight+mIndexRectRadius-20;
@@ -143,6 +162,15 @@ public class IndexViewFromSamsung extends View{
 				canvas.drawText(mAlphabets[i], mIndexTextX, mIndexTextY, mPaint);
 			}
 		}
+		if(mAnimEnd){
+			mPaint.setStyle(Paint.Style.FILL_AND_STROKE);
+			mPaint.setTextSize(mFloatingIndexRadius);
+			mPaint.setTextAlign(Align.CENTER);
+			FontMetrics fontMetrics = mPaint.getFontMetrics();
+			float fontPosY = (2*mPopCenter.y - fontMetrics.bottom - fontMetrics.top)/2;//字体居中公式
+			canvas.drawText(mAlphabets[mChosedIndex],mPopCenter.x,fontPosY,mPaint);
+		}
+			
 	}
 	
 	@Override
@@ -152,11 +180,12 @@ public class IndexViewFromSamsung extends View{
 				Log.i(TAG,"action_down,x:"+event.getX()+",y:"+event.getY());
 				if(event.getX()<mIndexStrokeX)
 					return super.dispatchTouchEvent(event);
-				touchY = (int)event.getY();
+				cancelAnim();
+				mTouchDownY = (int)event.getY();
 				
-				mTopStartY = touchY - (int)(2.5*mFloatingIndexRadius);
-				mBottomStartY = touchY + (int)(2.5*mFloatingIndexRadius);
-				mChosedIndex = getIndexByPosition(touchY);
+				mTopStartY = mTouchDownY - (int)(2.5*mFloatingIndexRadius);
+				mBottomStartY = mTouchDownY + (int)(2.5*mFloatingIndexRadius);
+				mChosedIndex = getIndexByPosition(mTouchDownY);
 				if(mListener!=null){
 					mListener.onAlphbetTouch(mAlphabets[mChosedIndex]);
 				}
@@ -166,14 +195,14 @@ public class IndexViewFromSamsung extends View{
 			case MotionEvent.ACTION_MOVE:
 				Log.i(TAG,"action_move,x:"+event.getX()+",y:"+event.getY());
 				//取消动画
-				if(Math.abs(event.getY() - touchY)<30)
+				if(Math.abs(event.getY() - mTouchDownY)>30)
 					cancelAnim();
 				//获得当前index
-				touchY = (int)event.getY();
+				int touchY = (int)event.getY();
 				mTopStartY = touchY - 2*mFloatingIndexRadius;
 				mBottomStartY = touchY + 2*mFloatingIndexRadius;
 				//终点
-				mTopEndPoint.x = mBottomEndPoint.x = (int)getRight()-(int)(1.1*mFloatingIndexRadius);
+				mTopEndPoint.x = mBottomEndPoint.x = (int)getRight()-(int)(1.2*mFloatingIndexRadius);
 				mTopEndPoint.y = mBottomEndPoint.y = (int)touchY;
 				//辅助点
 				mTopSupportPoint1.y = (int)(touchY - mFloatingIndexRadius*1f);
@@ -185,7 +214,7 @@ public class IndexViewFromSamsung extends View{
 				mBottomSupportPoint2.y = (int)(touchY + mFloatingIndexRadius*1f);
 				mBottomSupportPoint2.x = getRight();
 				//球心
-				mPopCenter.x = (int)(getRight() - 3.2 * mFloatingIndexRadius);
+				mPopCenter.x = (int)(getRight() - 2.8 * mFloatingIndexRadius);
 				mPopCenter.y = touchY;
 				
 				if(mListener!=null){
@@ -195,6 +224,9 @@ public class IndexViewFromSamsung extends View{
 				invalidate();
 				return true;
 			case MotionEvent.ACTION_UP:
+				Log.i(TAG,"action_up,x:"+event.getX()+",y:"+event.getY());
+				cancelAnim();
+				performTouchUpAnim(event.getY());
 				return true;
 			case MotionEvent.ACTION_CANCEL:
 				return true;
@@ -208,7 +240,7 @@ public class IndexViewFromSamsung extends View{
 
 	public void performTouchDownAnim(final float position){
 		
-		waveAnim = ValueAnimator.ofInt(getRight(),getRight()-(int)(1.1*mFloatingIndexRadius));
+		waveAnim = ValueAnimator.ofInt(getRight(),getRight()-(int)(1.2*mFloatingIndexRadius));
 		waveAnim.setInterpolator(new OvershootInterpolator(2.0f));
 		waveAnim.addUpdateListener(new AnimatorUpdateListener() {
 			//水波纹起来的动画
@@ -229,8 +261,33 @@ public class IndexViewFromSamsung extends View{
 				invalidate();
 			}
 		});
+		waveAnim.addListener(new AnimatorListener() {
+			
+			@Override
+			public void onAnimationStart(Animator animation) {
+				mAnimEnd = false;
+			}
+			
+			@Override
+			public void onAnimationRepeat(Animator animation) {
+				// TODO Auto-generated method stub
+				
+			}
+			
+			@Override
+			public void onAnimationEnd(Animator animation) {
+				mAnimEnd = true;
+			}
+			
+			@Override
+			public void onAnimationCancel(Animator animation) {
+				// TODO Auto-generated method stub
+				
+			}
+		});
 		
-		ballAnim = ValueAnimator.ofFloat(-1f,3.2f);
+		
+		ballAnim = ValueAnimator.ofFloat(-1f,2.8f);
 		ballAnim.addUpdateListener(new AnimatorUpdateListener() {
 			
 			@Override
@@ -240,12 +297,31 @@ public class IndexViewFromSamsung extends View{
 			}
 		});
 		
-		waveAnim.setDuration(1000);
+		waveAnim.setDuration(ANIM_DURATION);
 		waveAnim.start();
-		ballAnim.setDuration(1000);
+		ballAnim.setDuration(ANIM_DURATION);
 		ballAnim.start();
 	}
 	
+	
+	public void performTouchUpAnim(float positionY){
+		waveAnim = ValueAnimator.ofInt(mTopEndPoint.x,getRight());
+		waveAnim.addUpdateListener(new AnimatorUpdateListener() {
+			
+			@Override
+			public void onAnimationUpdate(ValueAnimator animation) {
+				mTopEndPoint.x = mBottomEndPoint.x = (Integer)animation.getAnimatedValue();
+				mTopSupportPoint2.x = mBottomSupportPoint1.x = mTopEndPoint.x;
+				mPopCenter.x = (int)((getRight()+mFloatingIndexRadius-mPopCenter.x)*(float)animation.getAnimatedFraction())+mPopCenter.x;
+				mChosedIndex = -1;
+				invalidate();
+			}
+		});
+		int duration = (int) ((getRight()+mFloatingIndexRadius-mPopCenter.x)/3.8f/mFloatingIndexRadius*ANIM_DURATION);
+		waveAnim.setDuration(duration);
+		waveAnim.start();
+		
+	}
 	
 	private void cancelAnim() {
 		if(waveAnim != null)
