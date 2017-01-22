@@ -189,8 +189,11 @@ public class IndexViewFromSamsung extends View{
 				if(mListener!=null){
 					mListener.onAlphbetTouch(mAlphabets[mChosedIndex]);
 				}
+				//防止ViewParent阻拦了touch事件
+				getParent().requestDisallowInterceptTouchEvent(true);
 				//动画效果
 				performTouchDownAnim(event.getY());
+				
 				return true;
 			case MotionEvent.ACTION_MOVE:
 				Log.i(TAG,"action_move,x:"+event.getX()+",y:"+event.getY());
@@ -227,8 +230,11 @@ public class IndexViewFromSamsung extends View{
 				Log.i(TAG,"action_up,x:"+event.getX()+",y:"+event.getY());
 				cancelAnim();
 				performTouchUpAnim(event.getY());
+				//恢复viewParent对于touch事件的掌控
+				getParent().requestDisallowInterceptTouchEvent(false);
 				return true;
 			case MotionEvent.ACTION_CANCEL:
+				getParent().requestDisallowInterceptTouchEvent(false);
 				return true;
 			default:
 				return false;
